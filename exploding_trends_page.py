@@ -8,31 +8,19 @@ class ExplodingTrendsPage:
 
     def __init__(self, page: Page) -> None:
         self.page = page
+        self.current_granularity: str = "Monthly"
 
         # ----- Type selector -----
-        self.type_section: Locator = page.locator("#type-selection")
-        self.type_trigger: Locator = self.type_section.locator(".relative").first
-        self.menu_items: Locator = self.type_section.locator("ul li div")
+        self.current_data_type = "Search Trend"
 
         # ----- View selector (Chart/List) -----
-        self.view_switcher: Locator = page.locator(
-            "div.relative.h-9.w-fit.cursor-pointer:has(p:has-text('View'))"
-        ).first
+        self.current_view = "Chart View"
 
-        # ----- Time granularity selector (Monthly/Weekly/Daily) -----
-        self.time_container: Locator = page.locator(
-            "div.relative.h-9.w-fit.cursor-pointer:has(p:has-text('Monthly')), "
-            "div.relative.h-9.w-fit.cursor-pointer:has(p:has-text('Weekly')), "
-            "div.relative.h-9.w-fit.cursor-pointer:has(p:has-text('Daily'))"
-        ).first
-        self.time_label: Locator = self.time_container.locator("p.whitespace-nowrap")
 
-        # ----- Category dropdown (sector selection) -----
-        self.category_button: Locator = page.locator(
-            "button:has-text('Select sectors'), button:has-text('selected')"
+        self.category_button: Locator = page.get_by_role(
+            "button", name=re.compile(r"(Select sectors|\d+\s+selected)", re.I)
         ).first
-        self.category_panel: Locator = page.locator("div.max-h-60.space-y-2")
-        self.category_labels: Locator = self.category_panel.locator("label span.text-sm")
+        self.apply_filter_btn: Locator = page.get_by_role("button", name="Apply Filter")
 
         # ----- Trend Cards -----
         self.trend_cards: Locator = page.locator("div.grid div.trend-ultra-compact")
@@ -42,52 +30,84 @@ class ExplodingTrendsPage:
         self.next_button: Locator = page.locator("button:has-text('Next')").last
 
     # ---------- TYPE MENU ----------
-    def open_type_menu(self, timeout: int = 50_000) -> None:
-        """Opens the type dropdown and waits for options."""
-        self.type_trigger.wait_for(state="visible", timeout=timeout)
-        self.type_trigger.click()
-        self.menu_items.first.wait_for(state="visible", timeout=timeout)
+    def choose_data_type(self, label: str, timeout: int = 5_000) -> None:
+        """
+        Switch Data Type (e.g., 'Search Trend', 'Tiktok', 'Wiki', etc.)
+        Using simple visible text selectors.
+        """
+        if label.lower() == self.current_data_type.lower():
+            print(f"Already using data type '{label}' — skipping.")
+            return
 
-    def select_source(self, label: str, timeout: int = 10_000) -> None:
-        """Selects a source like 'Tiktok' or 'Search Trend'."""
-        self.open_type_menu(timeout)
-        option = self.menu_items.filter(has_text=label).first
-        expect(option, f"Option '{label}' not found in type menu").to_be_visible(timeout=timeout)
-        option.click()
+        # Open dropdown by clicking current type (e.g. "Search Trend")
+        self.page.get_by_text(re.compile(rf"^{re.escape(self.current_data_type)}$", re.I)).click()
+
+        # Click the target option
+        target = self.page.get_by_text(label, exact=True)
+        expect(target, f"Data Type '{label}' not found").to_be_visible(timeout=timeout)
+        target.click()
+
+        # Update internal state
+        self.current_data_type = label
+        print(f"Switched data type → {self.current_data_type}")
 
     # ---------- VIEW SWITCH ----------
-    def choose_list_view(self, timeout: int = 5_000) -> None:
-        """Switch to 'List View'."""
-        self.view_switcher.wait_for(state="visible", timeout=timeout)
-        self.view_switcher.click()
-        option = self.page.get_by_text("List View", exact=True).first
-        expect(option, "Couldn't find 'List View'").to_be_visible(timeout=timeout)
-        option.click()
+    def choose_view(self, label: str, timeout: int = 5_000) -> None:
+        """
+        Change the 'View' dropdown by text, e.g. 'List View' or 'Chart View'.
+        Uses your pattern: click current text, then click target text.
+        """
+        if label.lower() == self.current_view.lower():
+            return  # already set
+
+        # Click the current view chip (e.g., "Chart View")
+        self.page.get_by_text(re.compile(rf"^{re.escape(self.current_view)}$")).click()
+
+        # Click the target item (e.g., "List View")
+        target = self.page.get_by_text(re.compile(rf"^{re.escape(label)}$"))
+        expect(target, f"View option '{label}' not found").to_be_visible(timeout=timeout)
+        target.click()
+
+        # Update local state
+        self.current_view = label
 
     # ---------- TIME GRANULARITY ----------
     def choose_time_granularity(self, label: str, timeout: int = 5_000) -> None:
-        """Switch to 'Daily', 'Weekly', or 'Monthly'."""
-        self.time_container.click()
-        options = self.page.locator("div.absolute ul li div")
-        option = options.filter(has_text=re.compile(rf"^{re.escape(label)}", re.I)).first
-        expect(option, f"Option '{label}' not found").to_be_visible(timeout=timeout)
-        option.click()
-        expect(self.time_label).to_have_text(re.compile(rf"^{re.escape(label)}", re.I), timeout=timeout)
+        """
+        Switch to 'Daily', 'Weekly', or 'Monthly' using visible text.
+        Avoid redundant clicks by tracking the current granularity.
+        """
+        if label.lower() == self.current_granularity.lower():
+            print(f"Already in '{label}' granularity — skipping change.")
+            return
+
+        # Click the current selection (e.g., "Monthly|")
+        self.page.get_by_text(re.compile(rf"^{self.current_granularity}\|?$", re.I)).click()
+
+        # Click the new option by visible text
+        target = self.page.get_by_text(re.compile(rf"^{re.escape(label)}", re.I))
+        expect(target, f"Granularity option '{label}' not found").to_be_visible(timeout=timeout)
+        target.click()
+
+        # Update internal state
+        self.current_granularity = label
+        print(f"Switched to granularity: {self.current_granularity}")
 
     # ---------- CATEGORY ----------
     def open_category_dropdown(self, timeout: int = 5_000) -> None:
-        """Opens the category dropdown."""
-        self.category_button.wait_for(state="visible", timeout=timeout)
+        """Open sectors menu and wait until it's actually open."""
         self.category_button.click()
-        self.category_panel.first.wait_for(state="visible", timeout=timeout)
+        expect(self.apply_filter_btn).to_be_visible(timeout=timeout)  # menu is open
 
-    def choose_category(self, label: str, timeout: int = 15_000) -> None:
-        """Selects one category by visible label."""
+    def choose_category(self, label: str, timeout: int = 5_000) -> None:
+        """Select one sector by its visible label and apply."""
         self.open_category_dropdown(timeout)
-        option = self.category_labels.filter(has_text=label).first
-        expect(option, f"Category '{label}' not found").to_be_visible(timeout=timeout)
+        option = self.page.locator("label").filter(has_text=label).first
+        expect(option, f"Label '{label}' not found").to_be_visible(timeout=timeout)
         option.click()
-        self.category_button.click()  # close dropdown
+        self.apply_filter_btn.click()
+        expect(self.apply_filter_btn).to_be_hidden(timeout=timeout)
+
 
     def extract_page_trends(self, timeout: int = 20_000) -> List[Dict[str, str]]:
         """Extract current page trends + top associated ticker and its percent (robust, simple)."""
